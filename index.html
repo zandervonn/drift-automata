@@ -6,7 +6,7 @@
   <title>SmoothLife</title>
   <style>
     :root {
-      --bg:        #14141e;
+      --bg:        #000000;
       --bar-bg:    rgba(20, 20, 30, 0.78);
       --panel-bg:  rgba(20, 20, 30, 0.92);
       --fg:        #e6e6f0;
@@ -192,6 +192,16 @@
     input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.15); }
     input[type="range"]:focus { outline: none; }
 
+    select {
+      background: var(--hover);
+      color: var(--fg);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 5px 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
     /* Color pickers as small swatches */
     input[type="color"] {
       -webkit-appearance: none;
@@ -247,6 +257,15 @@
     #rules-panel.open { max-height: 60vh; overflow: auto; }
     #rules-inner { padding: 16px 20px; }
 
+    .rules-section-title {
+      color: var(--fg-dim);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0 0 8px;
+    }
+    .rules-section-title + .rules-table { margin-bottom: 18px; }
+
     .rules-table {
       width: 100%;
       border-collapse: collapse;
@@ -275,6 +294,7 @@
       display: table-cell;
     }
     .rules-table .rule-cell input[type="range"] { width: 140px; }
+    .rules-table .pair-cell input[type="range"] { width: 170px; }
     .rules-table .rule-val {
       display: inline-block;
       margin-left: 8px;
@@ -327,6 +347,10 @@
       <div class="group">
         <span class="group-label">Brush</span>
         <span class="ctl">
+          <span class="lbl">species</span>
+          <select id="sel-brush-species"></select>
+        </span>
+        <span class="ctl">
           <span class="lbl">size</span>
           <input id="rng-brush" type="range" min="1" max="60" step="1" value="14">
           <span id="val-brush" class="val">14</span>
@@ -351,8 +375,8 @@
 
       <div class="group">
         <span class="group-label">Colors</span>
-        <span class="ctl"><span class="lbl">bg</span><input id="col-bg"   type="color" value="#14141e"></span>
-        <span class="ctl"><span class="lbl">cells</span><input id="col-cell" type="color" value="#ffd86b"></span>
+        <span class="ctl"><span class="lbl">bg</span><input id="col-bg"   type="color" value="#000000"></span>
+        <span id="species-colors" class="group"></span>
       </div>
 
       <div class="divider"></div>
@@ -366,6 +390,23 @@
 
     <div id="rules-panel">
       <div id="rules-inner">
+        <div class="rules-section-title">pairs</div>
+        <table class="rules-table">
+          <thead>
+            <tr>
+              <th>pair</th>
+              <th>field</th>
+              <th>base</th>
+              <th>deviation</th>
+              <th>scale</th>
+              <th>offset X</th>
+              <th>offset Y</th>
+            </tr>
+          </thead>
+          <tbody id="pairs-tbody"></tbody>
+        </table>
+
+        <div class="rules-section-title">rule fields</div>
         <table class="rules-table">
           <thead>
             <tr>
