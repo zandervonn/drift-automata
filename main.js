@@ -62,6 +62,8 @@ const rtOpts = {
 };
 let rtRead  = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
 let rtWrite = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
+let rtDisplayRead  = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
+let rtDisplayWrite = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
 
 // ---------------------------------------------------------------------------
 // Per-rule metadata. devMax is the slider max for noise deviation; the display
@@ -261,11 +263,13 @@ ${pairFieldEvals}
   float diskArea = 0.0;
   vec3 ringSum   = vec3(0.0);
   float ringArea = 0.0;
-  int R = max(1, int(ceil(u_rb_max * u_view_zoom)));
+  float rawR = max(1.0, ceil(u_rb_max * u_view_zoom));
+  int R = int(min(rawR, 18.0));
+  float sampleScale = rawR / float(R);
   for (int dy = -R; dy <= R; dy++) {
     for (int dx = -R; dx <= R; dx++) {
-      float fx = float(dx);
-      float fy = float(dy);
+      float fx = float(dx) * sampleScale;
+      float fy = float(dy) * sampleScale;
       float r  = sqrt(fx*fx + fy*fy);
       float inDisk = clamp(ra_px + 0.5 - r, 0.0, 1.0);
       float inRing = clamp(rb_px + 0.5 - r, 0.0, 1.0) - inDisk;
@@ -322,6 +326,18 @@ ${displayPastelLayers}
   float mass = clamp(max(max(v.r, v.g), v.b), 0.0, 1.0);
   vec3 speciesColor = clamp(${displaySpeciesColorSum}, 0.0, 1.0);
   outColor = vec4(mix(bg, speciesColor, mass), 1.0);
+}
+`;
+
+const SMOOTH_FRAG = /* glsl */`
+precision highp float;
+uniform sampler2D u_prev;
+uniform sampler2D u_curr;
+uniform float u_mix;
+in  vec2 vUv;
+out vec4 outColor;
+void main() {
+  outColor = vec4(mix(texture(u_curr, vUv).rgb, texture(u_prev, vUv).rgb, u_mix), 1.0);
 }
 `;
 
@@ -457,6 +473,11 @@ for (const r of RULES) {
 }
 
 const copyUniforms = { u_src: { value: null } };
+const smoothUniforms = {
+  u_prev: { value: null },
+  u_curr: { value: null },
+  u_mix:  { value: 0.0 },
+};
 const stampUniforms = {
   u_src:       { value: null },
   u_res:       { value: new THREE.Vector2(SIM_W, SIM_H) },
@@ -482,6 +503,7 @@ function makeScene(material) {
 }
 const stepScene    = makeScene(makeMat(STEP_FRAG,    stepUniforms));
 const displayScene = makeScene(makeMat(DISPLAY_FRAG, displayUniforms));
+const smoothScene  = makeScene(makeMat(SMOOTH_FRAG,  smoothUniforms));
 const copyScene    = makeScene(makeMat(COPY_FRAG,    copyUniforms));
 const stampScene   = makeScene(makeMat(STAMP_FRAG,   stampUniforms));
 const remapScene   = makeScene(makeMat(REMAP_FRAG,   remapUniforms));
@@ -538,6 +560,10 @@ function uploadSeed(kind) {
   tex.needsUpdate = true;
   copyUniforms.u_src.value = tex;
   renderer.setRenderTarget(rtRead);
+  renderer.render(copyScene, orthoCam);
+  renderer.setRenderTarget(rtDisplayRead);
+  renderer.render(copyScene, orthoCam);
+  renderer.setRenderTarget(rtDisplayWrite);
   renderer.render(copyScene, orthoCam);
   renderer.setRenderTarget(null);
   tex.dispose();
@@ -612,7 +638,18 @@ function stamp(canvasU, canvasV, mode) {
 }
 
 function display() {
-  displayUniforms.u_state.value = rtRead.texture;
+  if (params.reduceFlicker) {
+    smoothUniforms.u_prev.value = rtDisplayRead.texture;
+    smoothUniforms.u_curr.value = rtRead.texture;
+    smoothUniforms.u_mix.value = 0.72;
+    renderer.setRenderTarget(rtDisplayWrite);
+    renderer.render(smoothScene, orthoCam);
+    renderer.setRenderTarget(null);
+    [rtDisplayRead, rtDisplayWrite] = [rtDisplayWrite, rtDisplayRead];
+    displayUniforms.u_state.value = rtDisplayRead.texture;
+  } else {
+    displayUniforms.u_state.value = rtRead.texture;
+  }
   renderer.setRenderTarget(null);
   renderer.render(displayScene, orthoCam);
 }
@@ -622,8 +659,9 @@ function display() {
 // ---------------------------------------------------------------------------
 
 const params = {
-  paused:        false,
   stepsPerFrame: 1,
+  entropy:       0.0,
+  reduceFlicker: false,
   brushRadius:  14,
   brushValue:    1.0,
   brushSpecies:  'blue',
@@ -679,6 +717,22 @@ const noiseDefaults     = JSON.parse(JSON.stringify(params.noise));
 const speciesDefaults   = JSON.parse(JSON.stringify(params.species));
 const pairDefaults      = JSON.parse(JSON.stringify(params.pairs));
 const bgColorDefault    = params.bgColor;
+const fieldDrift = { pairs: {}, rules: {} };
+function makeDrift() {
+  const angle = Math.random() * Math.PI * 2;
+  return {
+    x: 0,
+    y: 0,
+    dx: Math.cos(angle),
+    dy: Math.sin(angle),
+  };
+}
+for (const p of PAIRS) {
+  fieldDrift.pairs[p.key] = makeDrift();
+}
+for (const r of RULES) {
+  fieldDrift.rules[r.key] = makeDrift();
+}
 
 function resetParams() {
   for (const r of RULES) {
@@ -689,12 +743,37 @@ function resetParams() {
   }
   for (const p of PAIRS) {
     Object.assign(params.pairs[p.key], pairDefaults[p.key]);
+    fieldDrift.pairs[p.key].x = 0;
+    fieldDrift.pairs[p.key].y = 0;
   }
   params.bgColor   = bgColorDefault;
   params.showRuleFields = true;
   params.showPairFields = true;
+  params.stepsPerFrame = 1;
+  params.entropy = 0;
+  params.reduceFlicker = false;
+  for (const r of RULES) {
+    fieldDrift.rules[r.key].x = 0;
+    fieldDrift.rules[r.key].y = 0;
+  }
   applyParams();
   refreshUI();
+}
+
+function driftFields() {
+  if (params.entropy <= 0) return;
+  const speed = params.entropy * params.entropy * 0.08;
+  for (const p of PAIRS) {
+    const d = fieldDrift.pairs[p.key];
+    d.x += d.dx * speed;
+    d.y += d.dy * speed;
+  }
+  for (const r of RULES) {
+    const d = fieldDrift.rules[r.key];
+    d.x += d.dx * speed;
+    d.y += d.dy * speed;
+  }
+  applyParams();
 }
 
 function applyParams() {
@@ -703,13 +782,14 @@ function applyParams() {
     stepUniforms[`u_pair_${pairMeta.key}_base`].value   = p.base;
     stepUniforms[`u_pair_${pairMeta.key}_dev`].value    = p.dev;
     stepUniforms[`u_pair_${pairMeta.key}_scale`].value  = p.scale;
-    stepUniforms[`u_pair_${pairMeta.key}_offset`].value.set(p.offsetX, p.offsetY);
+    const pairDrift = fieldDrift.pairs[pairMeta.key];
+    stepUniforms[`u_pair_${pairMeta.key}_offset`].value.set(p.offsetX + pairDrift.x, p.offsetY + pairDrift.y);
     stepUniforms[`u_pair_${pairMeta.key}_flat`].value   = p.flat ? 1 : 0;
 
     displayUniforms[`u_pair_${pairMeta.key}_base`].value   = p.base;
     displayUniforms[`u_pair_${pairMeta.key}_dev`].value    = p.dev;
     displayUniforms[`u_pair_${pairMeta.key}_scale`].value  = p.scale;
-    displayUniforms[`u_pair_${pairMeta.key}_offset`].value.set(p.offsetX, p.offsetY);
+    displayUniforms[`u_pair_${pairMeta.key}_offset`].value.set(p.offsetX + pairDrift.x, p.offsetY + pairDrift.y);
     displayUniforms[`u_pair_${pairMeta.key}_flat`].value   = p.flat ? 1 : 0;
 
     const targetColor = new THREE.Color(params.species[pairMeta.target].color);
@@ -733,13 +813,14 @@ function applyParams() {
     stepUniforms[`u_${r.key}_base`].value   = p.base;
     stepUniforms[`u_${r.key}_dev`].value    = p.dev;
     stepUniforms[`u_${r.key}_scale`].value  = p.scale;
-    stepUniforms[`u_${r.key}_offset`].value.set(p.offsetX, p.offsetY);
+    const ruleDrift = fieldDrift.rules[r.key];
+    stepUniforms[`u_${r.key}_offset`].value.set(p.offsetX + ruleDrift.x, p.offsetY + ruleDrift.y);
     stepUniforms[`u_${r.key}_flat`].value   = flatI;
 
     displayUniforms[`u_${r.key}_base`].value    = p.base;
     displayUniforms[`u_${r.key}_dev`].value     = p.dev;
     displayUniforms[`u_${r.key}_scale`].value   = p.scale;
-    displayUniforms[`u_${r.key}_offset`].value.set(p.offsetX, p.offsetY);
+    displayUniforms[`u_${r.key}_offset`].value.set(p.offsetX + ruleDrift.x, p.offsetY + ruleDrift.y);
     displayUniforms[`u_${r.key}_flat`].value    = flatI;
     displayUniforms[`u_${r.key}_dev_max`].value = r.devMax;
 
@@ -761,8 +842,7 @@ function applyParams() {
 }
 
 // Custom bottom-bar UI. Markup lives in index.html; this just wires controls
-// to params + applyParams and exposes setPaused/refreshUI for outside callers
-// (keyboard shortcuts, resetParams).
+// to params + applyParams and exposes refreshUI for outside callers.
 const $ = sel => document.querySelector(sel);
 const fmt = (v, dp) => Number(v).toFixed(dp);
 
@@ -803,13 +883,12 @@ function setPairFields(flat) {
   refreshUI();
 }
 
-let playBtnEl;
-function setPaused(p) {
-  params.paused = p;
-  if (playBtnEl) {
-    playBtnEl.textContent = p ? '▶' : '⏸';
-    playBtnEl.title = p ? 'Play (Space)' : 'Pause (Space)';
-  }
+function allRuleFieldsOn() {
+  return RULES.every(r => !params.noise[r.key].flat);
+}
+
+function allPairFieldsOn() {
+  return PAIRS.every(p => !params.pairs[p.key].flat);
 }
 
 function bindRange(rngSel, valSel, setter, dp = 0) {
@@ -960,7 +1039,12 @@ function buildPairsTable() {
 
 function refreshUI() {
   $('#rng-speed').value = params.stepsPerFrame;
-  $('#val-speed').textContent = params.stepsPerFrame;
+  $('#val-speed').textContent = fmt(params.stepsPerFrame, 2);
+  $('#rng-entropy').value = params.entropy;
+  $('#val-entropy').textContent = fmt(params.entropy, 2);
+  $('#chk-flicker').checked = params.reduceFlicker;
+  $('#chk-pairs-all').checked = allPairFieldsOn();
+  $('#chk-rules-all').checked = allRuleFieldsOn();
   $('#sel-brush-species').value = params.brushSpecies;
   $('#col-bg').value   = params.bgColor;
   $('#chk-show-rules').checked = params.showRuleFields;
@@ -992,13 +1076,13 @@ function refreshUI() {
 }
 
 function bindUI() {
-  playBtnEl = $('#btn-play');
-  playBtnEl.addEventListener('click', () => setPaused(!params.paused));
-  setPaused(params.paused);
-
   $('#btn-step').addEventListener('click', () => step());
 
-  bindRange('#rng-speed', '#val-speed', v => { params.stepsPerFrame = v|0; }, 0);
+  bindRange('#rng-speed', '#val-speed', v => { params.stepsPerFrame = v; }, 2);
+  bindRange('#rng-entropy', '#val-entropy', v => { params.entropy = v; }, 2);
+  $('#chk-flicker').addEventListener('input', e => {
+    params.reduceFlicker = e.target.checked;
+  });
 
   $('#btn-clear'  ).addEventListener('click', () => uploadSeed('clear'));
   $('#btn-noise'  ).addEventListener('click', () => uploadSeed('noise'));
@@ -1023,10 +1107,8 @@ function bindUI() {
   buildSpeciesControls();
   buildPairsTable();
   buildRulesTable();
-  $('#btn-pairs-on').addEventListener('click', () => setPairFields(false));
-  $('#btn-pairs-off').addEventListener('click', () => setPairFields(true));
-  $('#btn-rules-on').addEventListener('click', () => setRuleFields(false));
-  $('#btn-rules-off').addEventListener('click', () => setRuleFields(true));
+  $('#chk-pairs-all').addEventListener('input', e => setPairFields(!e.target.checked));
+  $('#chk-rules-all').addEventListener('input', e => setRuleFields(!e.target.checked));
   $('#btn-reset-rules').addEventListener('click', () => resetParams());
 }
 
@@ -1135,7 +1217,6 @@ renderer.domElement.addEventListener('wheel', e => {
 
 window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement) return;
-  if (e.code === 'Space')  { setPaused(!params.paused); e.preventDefault(); }
   if (e.code === 'KeyN')   { uploadSeed('noise'); }
   if (e.code === 'KeyC')   { uploadSeed('clear'); }
   if (e.code === 'Period') { step(); }
@@ -1149,10 +1230,14 @@ function reallocateBuffers(w, h) {
   if (w === SIM_W && h === SIM_H) return;
   rtRead.dispose();
   rtWrite.dispose();
+  rtDisplayRead.dispose();
+  rtDisplayWrite.dispose();
   SIM_W = w;
   SIM_H = h;
   rtRead  = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
   rtWrite = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
+  rtDisplayRead  = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
+  rtDisplayWrite = new THREE.WebGLRenderTarget(SIM_W, SIM_H, rtOpts);
   uploadSeed('clear');
   // Anything painted is gone — fresh viewport-sized buffer.
   commitView();
@@ -1165,10 +1250,15 @@ window.addEventListener('resize', () => {
 });
 
 let frame = 0;
+let stepCredit = 0;
 function animate() {
   requestAnimationFrame(animate);
-  if (!params.paused) {
-    for (let i = 0; i < params.stepsPerFrame; i++) step();
+  driftFields();
+  stepCredit += params.stepsPerFrame;
+  const wholeSteps = Math.floor(stepCredit);
+  if (wholeSteps > 0) {
+    stepCredit -= wholeSteps;
+    for (let i = 0; i < wholeSteps; i++) step();
   } else if (viewChanged()) {
     remapBuffer();
   }
