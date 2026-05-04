@@ -684,13 +684,14 @@ const PAIR_DEFAULTS = {
   blue:  { red:  0.477, green: 0.627, blue: -0.532 },
 };
 const PAIR_NOISE_INTRO = {};
+const randomScale = () => 1.5 + Math.random() * 8.5;
 const randomOffset = () => -50 + Math.random() * 100;
 for (const p of PAIRS) {
   const intro = PAIR_NOISE_INTRO[p.key] ?? {};
   params.pairs[p.key] = {
-    base:    intro.base    ?? 0.0,
-    dev:     intro.dev     ?? 0.3,
-    scale:   intro.scale   ?? 1.0,
+    base:    PAIR_DEFAULTS[p.target]?.[p.source] ?? 0.0,
+    dev:     intro.dev     ?? 0.16,
+    scale:   intro.scale   ?? randomScale(),
     offsetX: intro.offsetX ?? randomOffset(),
     offsetY: intro.offsetY ?? randomOffset(),
     flat:    intro.flat    ?? false,
@@ -703,9 +704,9 @@ const NOISE_INTRO = {};
 for (const r of RULES) {
   const intro = NOISE_INTRO[r.key] ?? {};
   params.noise[r.key] = {
-    base:    intro.base    ?? 0.0,
-    dev:     intro.dev     ?? 0.3,
-    scale:   intro.scale   ?? 1.0,
+    base:    r.base,
+    dev:     intro.dev     ?? Math.min(r.devMax * 0.25, r.devMax),
+    scale:   intro.scale   ?? randomScale(),
     offsetX: intro.offsetX ?? randomOffset(),
     offsetY: intro.offsetY ?? randomOffset(),
     flat:    intro.flat    ?? false,
@@ -1041,7 +1042,7 @@ function refreshUI() {
   $('#val-speed').textContent = fmt(params.stepsPerFrame, 2);
   $('#rng-entropy').value = params.entropy;
   $('#val-entropy').textContent = fmt(params.entropy, 2);
-  $('#chk-flicker').checked = !params.reduceFlicker;
+  $('#chk-flicker').checked = params.reduceFlicker;
   $('#chk-pairs-all').checked = allPairFieldsOn();
   $('#chk-rules-all').checked = allRuleFieldsOn();
   $('#sel-brush-species').value = params.brushSpecies;
@@ -1080,7 +1081,7 @@ function bindUI() {
   bindRange('#rng-speed', '#val-speed', v => { params.stepsPerFrame = v; }, 2);
   bindRange('#rng-entropy', '#val-entropy', v => { params.entropy = v; }, 2);
   $('#chk-flicker').addEventListener('input', e => {
-    params.reduceFlicker = !e.target.checked;
+    params.reduceFlicker = e.target.checked;
   });
 
   $('#btn-clear'  ).addEventListener('click', () => uploadSeed('clear'));
