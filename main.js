@@ -661,7 +661,7 @@ function display() {
 const params = {
   stepsPerFrame: 1,
   entropy:       0.0,
-  reduceFlicker: true,
+  reduceFlicker: false,
   brushRadius:  14,
   brushValue:    1.0,
   brushSpecies:  'blue',
@@ -750,7 +750,7 @@ function resetParams() {
   params.showPairFields = true;
   params.stepsPerFrame = 1;
   params.entropy = 0;
-  params.reduceFlicker = true;
+  params.reduceFlicker = false;
   for (const r of RULES) {
     fieldDrift.rules[r.key].x = 0;
     fieldDrift.rules[r.key].y = 0;
