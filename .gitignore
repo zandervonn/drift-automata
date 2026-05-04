@@ -1,0 +1,9 @@
+# JetBrains workspace state
+.idea/
+
+# Claude Code per-user settings
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc

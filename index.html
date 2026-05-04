@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SmoothLife</title>
+  <style>
+    :root {
+      --bg:        #14141e;
+      --bar-bg:    rgba(20, 20, 30, 0.78);
+      --panel-bg:  rgba(20, 20, 30, 0.92);
+      --fg:        #e6e6f0;
+      --fg-dim:    #8b8ba0;
+      --line:      rgba(255, 255, 255, 0.06);
+      --hover:     rgba(255, 255, 255, 0.06);
+      --hover-2:   rgba(255, 255, 255, 0.12);
+      --accent:    #b8a4ff;
+      --accent-2:  rgba(184, 164, 255, 0.18);
+      --radius:    8px;
+      --radius-sm: 6px;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    canvas { display: block; cursor: crosshair; }
+
+    #hint {
+      position: fixed;
+      top: 14px;
+      left: 16px;
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      color: rgba(230, 230, 240, 0.55);
+      pointer-events: none;
+      user-select: none;
+    }
+    #hint kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: rgba(230, 230, 240, 0.85);
+    }
+
+    /* ---------------- Bottom bar ---------------- */
+    #bar {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      background: var(--bar-bg);
+      backdrop-filter: blur(20px) saturate(140%);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+      border-top: 1px solid var(--line);
+      color: var(--fg);
+      font-size: 12px;
+      user-select: none;
+      z-index: 10;
+    }
+    #bar-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 16px;
+      flex-wrap: wrap;
+    }
+    .group { display: flex; align-items: center; gap: 8px; }
+    .group-label {
+      color: var(--fg-dim);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding-right: 4px;
+    }
+    .divider {
+      width: 1px;
+      height: 22px;
+      background: var(--line);
+    }
+    .spacer { flex: 1 1 auto; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--hover);
+      color: var(--fg);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+    }
+    .btn:hover { background: var(--hover-2); }
+    .btn:active { transform: translateY(1px); }
+    .btn .key {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      color: var(--fg-dim);
+    }
+
+    .btn-icon {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: var(--hover);
+      color: var(--fg);
+      border: 1px solid var(--line);
+      cursor: pointer;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: background 120ms ease, transform 80ms ease;
+    }
+    .btn-icon:hover { background: var(--hover-2); }
+    .btn-icon:active { transform: scale(0.96); }
+
+    .btn-accent {
+      background: var(--accent-2);
+      border-color: rgba(184, 164, 255, 0.32);
+      color: var(--fg);
+    }
+    .btn-accent:hover { background: rgba(184, 164, 255, 0.28); }
+    .btn-accent[aria-expanded="true"] { background: rgba(184, 164, 255, 0.32); }
+    .btn-accent .chev { display: inline-block; transition: transform 180ms ease; }
+    .btn-accent[aria-expanded="true"] .chev { transform: rotate(180deg); }
+
+    /* Range + value pair */
+    .ctl {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--fg-dim);
+    }
+    .ctl > .lbl { color: var(--fg-dim); }
+    .ctl > .val {
+      color: var(--fg);
+      font-variant-numeric: tabular-nums;
+      min-width: 28px;
+      text-align: right;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100px;
+      height: 18px;
+      background: transparent;
+      cursor: pointer;
+      vertical-align: middle;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 2px;
+    }
+    input[type="range"]::-moz-range-track {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 2px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--fg);
+      border: none;
+      margin-top: -5.5px;
+      transition: transform 80ms ease;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--fg);
+      border: none;
+    }
+    input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.15); }
+    input[type="range"]:focus { outline: none; }
+
+    /* Color pickers as small swatches */
+    input[type="color"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 26px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+      vertical-align: middle;
+      overflow: hidden;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
+    input[type="color"]::-moz-color-swatch    { border: none; border-radius: 3px; }
+
+    /* iOS-ish toggle switch */
+    .switch { position: relative; display: inline-block; width: 30px; height: 16px; }
+    .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .switch-track {
+      position: absolute; inset: 0;
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      transition: background 140ms ease;
+    }
+    .switch-track::before {
+      content: "";
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 12px; height: 12px;
+      background: #ddd;
+      border-radius: 50%;
+      transition: transform 140ms ease, background 140ms ease;
+    }
+    .switch input:checked + .switch-track { background: var(--accent); }
+    .switch input:checked + .switch-track::before {
+      transform: translateX(14px);
+      background: #fff;
+    }
+
+    /* ---------------- Rules panel ---------------- */
+    #rules-panel {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 240ms ease;
+      background: var(--panel-bg);
+      backdrop-filter: blur(20px) saturate(140%);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+      border-top: 1px solid var(--line);
+    }
+    #rules-panel.open { max-height: 60vh; overflow: auto; }
+    #rules-inner { padding: 16px 20px; }
+
+    .rules-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .rules-table th, .rules-table td {
+      text-align: left;
+      padding: 8px 10px;
+      vertical-align: middle;
+    }
+    .rules-table th {
+      color: var(--fg-dim);
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--line);
+    }
+    .rules-table tbody tr + tr td { border-top: 1px solid var(--line); }
+    .rules-table .rule-name {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--fg);
+      letter-spacing: 0.02em;
+    }
+    .rules-table .rule-cell {
+      display: table-cell;
+    }
+    .rules-table .rule-cell input[type="range"] { width: 140px; }
+    .rules-table .rule-val {
+      display: inline-block;
+      margin-left: 8px;
+      color: var(--fg);
+      font-variant-numeric: tabular-nums;
+      min-width: 38px;
+      font-size: 11px;
+    }
+
+    .rules-footer {
+      margin-top: 14px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* Don't let the bar swallow paint clicks underneath transparent margins */
+    #bar, #rules-panel { pointer-events: auto; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="hint">
+    <kbd>L</kbd>-drag paint &middot; <kbd>R</kbd>-drag erase &middot; <kbd>M</kbd>-drag pan &middot; wheel zoom &middot; <kbd>Space</kbd> pause &middot; <kbd>F</kbd> reset view
+  </div>
+
+  <div id="bar">
+    <div id="bar-row">
+      <div class="group">
+        <button id="btn-play"  class="btn-icon" title="Pause (Space)">⏸</button>
+        <button id="btn-step"  class="btn-icon" title="Step one frame (.)">⏭</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="group">
+        <span class="group-label">Speed</span>
+        <input id="rng-speed" type="range" min="1" max="8" step="1" value="1">
+        <span id="val-speed" class="val">1</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="group">
+        <span class="group-label">Brush</span>
+        <span class="ctl">
+          <span class="lbl">size</span>
+          <input id="rng-brush" type="range" min="1" max="60" step="1" value="14">
+          <span id="val-brush" class="val">14</span>
+        </span>
+        <span class="ctl">
+          <span class="lbl">value</span>
+          <input id="rng-value" type="range" min="0" max="1" step="0.01" value="1">
+          <span id="val-value" class="val">1.00</span>
+        </span>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="group">
+        <span class="group-label">Seed</span>
+        <button id="btn-clear"   class="btn">clear <span class="key">C</span></button>
+        <button id="btn-circles" class="btn">circles <span class="key">R</span></button>
+        <button id="btn-noise"   class="btn">noise <span class="key">N</span></button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="group">
+        <span class="group-label">Colors</span>
+        <span class="ctl"><span class="lbl">bg</span><input id="col-bg"   type="color" value="#14141e"></span>
+        <span class="ctl"><span class="lbl">cells</span><input id="col-cell" type="color" value="#ffd86b"></span>
+      </div>
+
+      <div class="divider"></div>
+
+      <button id="btn-reset-view" class="btn">reset view <span class="key">F</span></button>
+
+      <div class="spacer"></div>
+
+      <button id="btn-rules" class="btn btn-accent" aria-expanded="false">rules <span class="chev">▾</span></button>
+    </div>
+
+    <div id="rules-panel">
+      <div id="rules-inner">
+        <table class="rules-table">
+          <thead>
+            <tr>
+              <th>rule</th>
+              <th>active</th>
+              <th>color</th>
+              <th>deviation</th>
+              <th>scale</th>
+              <th>offset X</th>
+              <th>offset Y</th>
+            </tr>
+          </thead>
+          <tbody id="rules-tbody"></tbody>
+        </table>
+        <div class="rules-footer">
+          <button id="btn-reset-rules" class="btn">reset all rules</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
