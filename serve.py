@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tiny static server for the SmoothLife app.
+"""Tiny static server for the Drift Automata app.
 
 Run from the IDE (right-click -> Run) or:
     python serve.py
@@ -36,7 +36,7 @@ def main():
     os.chdir(ROOT)
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         url = f"http://localhost:{PORT}/"
-        print(f"smoothlife serving at {url}  (Ctrl+C to stop)")
+        print(f"drift automata serving at {url}  (Ctrl+C to stop)")
         try:
             webbrowser.open(url)
         except Exception:

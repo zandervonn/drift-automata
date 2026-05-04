@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-// SmoothLife on the GPU. State is an RGB species field stored in RGBA16F
+// Drift Automata on the GPU. State is an RGB species field stored in RGBA16F
 // render targets, ping-ponged each frame.
 //
 // COORDINATE MODEL.
@@ -20,7 +20,7 @@ import * as THREE from 'three';
 //     out-of-buffer (e.g. the moment after zoom-in before fresh cells fill).
 let SIM_W = Math.max(2, window.innerWidth );
 let SIM_H = Math.max(2, window.innerHeight);
-console.log(`[smoothlife] viewport buffer ${SIM_W}x${SIM_H} (${(SIM_W*SIM_H/1e6).toFixed(2)}M cells)`);
+console.log(`[drift-automata] viewport buffer ${SIM_W}x${SIM_H} (${(SIM_W*SIM_H/1e6).toFixed(2)}M cells)`);
 
 const renderer = new THREE.WebGLRenderer({
   antialias: false,
@@ -41,7 +41,7 @@ if (!renderer.capabilities.isWebGL2) {
   const dbg = gl.getExtension('WEBGL_debug_renderer_info');
   const gpu    = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '(masked)';
   const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)   : '(masked)';
-  console.log(`[smoothlife] webgl2 ok — GPU: ${gpu}  vendor: ${vendor}`);
+  console.log(`[drift-automata] webgl2 ok — GPU: ${gpu}  vendor: ${vendor}`);
 }
 
 const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -1263,7 +1263,7 @@ function animate() {
     remapBuffer();
   }
   display();
-  if (frame === 0) console.log('[smoothlife] first frame rendered');
+  if (frame === 0) console.log('[drift-automata] first frame rendered');
   frame++;
 }
 animate();
