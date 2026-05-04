@@ -28,7 +28,7 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x000000, 1);
+renderer.setClearColor(0xffffff, 1);
 document.body.appendChild(renderer.domElement);
 
 if (!renderer.capabilities.isWebGL2) {
@@ -164,6 +164,7 @@ uniform float u_pair_${p.key}_scale;
 uniform vec2  u_pair_${p.key}_offset;
 uniform int   u_pair_${p.key}_flat;`
 ).join('\n');
+const pairDisplayUniforms = PAIRS.map(p => `uniform vec3  u_pair_${p.key}_pastel;`).join('\n');
 const speciesColorUniforms = SPECIES_KEYS.map(k => `uniform vec3 u_species_${k}_color;`).join('\n');
 const speciesPairEvals = SPECIES_KEYS.map(k => `
   float pairSum_${k} = dot(pair_${k}, vec3(1.0));
@@ -201,6 +202,13 @@ const displayPastelLayers = RULE_KEYS.map(k => `
     float devNorm = u_${k}_dev_max > 0.0 ? clamp(u_${k}_dev / u_${k}_dev_max, 0.0, 1.0) : 0.0;
     float intensity = abs(n) * devNorm * (50.0/255.0);
     bg = mix(bg, u_${k}_pastel, intensity);
+  }`).join('');
+
+const displayPairLayers = PAIRS.map(p => `
+  {
+    float n = (u_pair_${p.key}_flat == 1) ? 0.0 : snoise(worldP * (u_pair_${p.key}_scale * ${NOISE_SPATIAL_K}) + u_pair_${p.key}_offset);
+    float intensity = abs(n) * clamp(u_pair_${p.key}_dev, 0.0, 1.0) * (55.0/255.0);
+    bg = mix(bg, u_pair_${p.key}_pastel, intensity);
   }`).join('');
 
 const STEP_FRAG = /* glsl */`
@@ -285,8 +293,12 @@ uniform vec2  u_res;            // buffer = canvas resolution
 uniform vec2  u_view_center;    // world coord at buffer center
 uniform float u_view_zoom;      // canvas pixels per world unit
 uniform vec3  u_bg_color;
+uniform int   u_show_rule_fields;
+uniform int   u_show_pair_fields;
 ${speciesColorUniforms}
 ${displayRuleUniforms}
+${pairUniforms}
+${pairDisplayUniforms}
 in  vec2 vUv;
 out vec4 outColor;
 
@@ -299,7 +311,12 @@ void main() {
   vec2 worldP = u_view_center + (vUv * u_res - u_res * 0.5) / u_view_zoom;
 
   vec3 bg = u_bg_color;
+  if (u_show_pair_fields == 1) {
+${displayPairLayers}
+  }
+  if (u_show_rule_fields == 1) {
 ${displayPastelLayers}
+  }
 
   vec3 v = texture(u_state, vUv).rgb;
   float mass = clamp(max(max(v.r, v.g), v.b), 0.0, 1.0);
@@ -414,10 +431,20 @@ const displayUniforms = {
   u_res:         { value: new THREE.Vector2(SIM_W, SIM_H) },
   u_view_center: { value: new THREE.Vector2(0, 0) },
   u_view_zoom:   { value: 1.0 },
-  u_bg_color:    { value: new THREE.Vector3(0.000, 0.000, 0.000) },
+  u_bg_color:    { value: new THREE.Vector3(1.000, 1.000, 1.000) },
+  u_show_rule_fields: { value: 1 },
+  u_show_pair_fields: { value: 1 },
 };
 for (const s of SPECIES) {
   displayUniforms[`u_species_${s.key}_color`] = { value: new THREE.Vector3(1, 1, 1) };
+}
+for (const p of PAIRS) {
+  displayUniforms[`u_pair_${p.key}_base`]   = { value: 0.0 };
+  displayUniforms[`u_pair_${p.key}_dev`]    = { value: 0.0 };
+  displayUniforms[`u_pair_${p.key}_scale`]  = { value: 4.0 };
+  displayUniforms[`u_pair_${p.key}_offset`] = { value: new THREE.Vector2(0, 0) };
+  displayUniforms[`u_pair_${p.key}_flat`]   = { value: 1 };
+  displayUniforms[`u_pair_${p.key}_pastel`] = { value: new THREE.Vector3(1, 1, 1) };
 }
 for (const r of RULES) {
   displayUniforms[`u_${r.key}_base`]    = { value: r.base };
@@ -516,7 +543,7 @@ function uploadSeed(kind) {
   tex.dispose();
 }
 
-uploadSeed('noise');
+uploadSeed('clear');
 
 // ---------------------------------------------------------------------------
 // Stepping & display
@@ -600,11 +627,12 @@ const params = {
   brushRadius:  14,
   brushValue:    1.0,
   brushSpecies:  'blue',
-  bgColor:      '#000000',
+  bgColor:      '#ffffff',
+  showRuleFields: true,
+  showPairFields: true,
   species:       {},
   pairs:         {},
   noise:         {},
-  seedCircles: () => uploadSeed('circles'),
   seedNoise:   () => uploadSeed('noise'),
   clear:       () => uploadSeed('clear'),
   resetParams: () => resetParams(),
@@ -617,23 +645,18 @@ const PAIR_DEFAULTS = {
   green: { red: -0.646, green: 0.658, blue: 0.552 },
   blue:  { red:  0.477, green: 0.627, blue: -0.532 },
 };
-const PAIR_NOISE_INTRO = {
-  red_green:  { flat: false, dev: 0.18, scale: 3.0, offsetX:  2.7, offsetY:  8.1 },
-  red_blue:   { flat: false, dev: 0.18, scale: 4.0, offsetX: 12.3, offsetY: -5.4 },
-  green_red:  { flat: false, dev: 0.16, scale: 2.5, offsetX: -6.0, offsetY:  1.8 },
-  green_blue: { flat: false, dev: 0.16, scale: 3.5, offsetX:  5.5, offsetY: 13.7 },
-  blue_red:   { flat: false, dev: 0.18, scale: 4.5, offsetX: -9.2, offsetY: -3.0 },
-  blue_green: { flat: false, dev: 0.18, scale: 3.0, offsetX:  1.4, offsetY: -9.9 },
-};
+const PAIR_NOISE_INTRO = {};
+const randomScale = () => 1.5 + Math.random() * 8.5;
+const randomOffset = () => -50 + Math.random() * 100;
 for (const p of PAIRS) {
   const intro = PAIR_NOISE_INTRO[p.key] ?? {};
   params.pairs[p.key] = {
     base:    PAIR_DEFAULTS[p.target]?.[p.source] ?? 0.0,
-    dev:     intro.dev     ?? 0.0,
-    scale:   intro.scale   ?? 4.0,
-    offsetX: intro.offsetX ?? 0.0,
-    offsetY: intro.offsetY ?? 0.0,
-    flat:    intro.flat    ?? true,
+    dev:     intro.dev     ?? 0.16,
+    scale:   intro.scale   ?? randomScale(),
+    offsetX: intro.offsetX ?? randomOffset(),
+    offsetY: intro.offsetY ?? randomOffset(),
+    flat:    intro.flat    ?? false,
   };
 }
 // Initial spatial variation on a few rules so the pastel background reads on
@@ -644,11 +667,11 @@ for (const r of RULES) {
   const intro = NOISE_INTRO[r.key] ?? {};
   params.noise[r.key] = {
     base:    r.base,
-    dev:     intro.dev     ?? 0.0,
-    scale:   intro.scale   ?? 4.0,
-    offsetX: intro.offsetX ?? 0.0,
-    offsetY: intro.offsetY ?? 0.0,
-    flat:    intro.flat    ?? true,
+    dev:     intro.dev     ?? Math.min(r.devMax * 0.25, r.devMax),
+    scale:   intro.scale   ?? randomScale(),
+    offsetX: intro.offsetX ?? randomOffset(),
+    offsetY: intro.offsetY ?? randomOffset(),
+    flat:    intro.flat    ?? false,
     color:   r.color,
   };
 }
@@ -668,6 +691,8 @@ function resetParams() {
     Object.assign(params.pairs[p.key], pairDefaults[p.key]);
   }
   params.bgColor   = bgColorDefault;
+  params.showRuleFields = true;
+  params.showPairFields = true;
   applyParams();
   refreshUI();
 }
@@ -680,6 +705,20 @@ function applyParams() {
     stepUniforms[`u_pair_${pairMeta.key}_scale`].value  = p.scale;
     stepUniforms[`u_pair_${pairMeta.key}_offset`].value.set(p.offsetX, p.offsetY);
     stepUniforms[`u_pair_${pairMeta.key}_flat`].value   = p.flat ? 1 : 0;
+
+    displayUniforms[`u_pair_${pairMeta.key}_base`].value   = p.base;
+    displayUniforms[`u_pair_${pairMeta.key}_dev`].value    = p.dev;
+    displayUniforms[`u_pair_${pairMeta.key}_scale`].value  = p.scale;
+    displayUniforms[`u_pair_${pairMeta.key}_offset`].value.set(p.offsetX, p.offsetY);
+    displayUniforms[`u_pair_${pairMeta.key}_flat`].value   = p.flat ? 1 : 0;
+
+    const targetColor = new THREE.Color(params.species[pairMeta.target].color);
+    const sourceColor = new THREE.Color(params.species[pairMeta.source].color);
+    displayUniforms[`u_pair_${pairMeta.key}_pastel`].value.set(
+      (targetColor.r + sourceColor.r) * 0.5,
+      (targetColor.g + sourceColor.g) * 0.5,
+      (targetColor.b + sourceColor.b) * 0.5,
+    );
   }
 
   for (const s of SPECIES) {
@@ -716,6 +755,9 @@ function applyParams() {
 
   const bg = new THREE.Color(params.bgColor);
   displayUniforms.u_bg_color.value.set(bg.r, bg.g, bg.b);
+  displayUniforms.u_show_rule_fields.value = params.showRuleFields ? 1 : 0;
+  displayUniforms.u_show_pair_fields.value = params.showPairFields ? 1 : 0;
+  syncColorUI();
 }
 
 // Custom bottom-bar UI. Markup lives in index.html; this just wires controls
@@ -723,6 +765,43 @@ function applyParams() {
 // (keyboard shortcuts, resetParams).
 const $ = sel => document.querySelector(sel);
 const fmt = (v, dp) => Number(v).toFixed(dp);
+
+function mixHex(aHex, bHex, t = 0.5) {
+  const a = new THREE.Color(aHex);
+  const b = new THREE.Color(bHex);
+  const r = Math.round((a.r * (1 - t) + b.r * t) * 255);
+  const g = Math.round((a.g * (1 - t) + b.g * t) * 255);
+  const bch = Math.round((a.b * (1 - t) + b.b * t) * 255);
+  return `rgb(${r}, ${g}, ${bch})`;
+}
+
+function syncColorUI() {
+  for (const s of SPECIES) {
+    const input = document.querySelector(`#species-colors [data-species="${s.key}"]`);
+    if (input) input.value = params.species[s.key].color;
+  }
+  for (const pairMeta of PAIRS) {
+    const tr = document.querySelector(`#pairs-tbody tr[data-pair="${pairMeta.key}"]`);
+    if (!tr) continue;
+    const targetColor = params.species[pairMeta.target].color;
+    const sourceColor = params.species[pairMeta.source].color;
+    tr.style.setProperty('--pair-bg', mixHex(targetColor, sourceColor));
+    tr.querySelector('[data-swatch="target"]').style.background = targetColor;
+    tr.querySelector('[data-swatch="source"]').style.background = sourceColor;
+  }
+}
+
+function setRuleFields(flat) {
+  for (const r of RULES) params.noise[r.key].flat = flat;
+  applyParams();
+  refreshUI();
+}
+
+function setPairFields(flat) {
+  for (const p of PAIRS) params.pairs[p.key].flat = flat;
+  applyParams();
+  refreshUI();
+}
 
 let playBtnEl;
 function setPaused(p) {
@@ -830,7 +909,13 @@ function buildPairsTable() {
     const tr = document.createElement('tr');
     tr.dataset.pair = pairMeta.key;
     tr.innerHTML = `
-      <td class="rule-name">${pairMeta.label}</td>
+      <td class="rule-name" title="${pairMeta.label}">
+        <span class="pair-mark">
+          <span class="swatch" data-swatch="target"></span>
+          <span class="pair-arrow">&larr;</span>
+          <span class="swatch" data-swatch="source"></span>
+        </span>
+      </td>
       <td class="rule-cell"><label class="switch"><input type="checkbox" data-prop="active"${!p.flat ? ' checked' : ''}><span class="switch-track"></span></label></td>
       <td class="pair-cell">
         <input type="range" data-prop="base" min="-1" max="1" step="0.001" value="${p.base}">
@@ -855,6 +940,7 @@ function buildPairsTable() {
     `;
     tbody.appendChild(tr);
   }
+  syncColorUI();
 
   tbody.addEventListener('input', e => {
     const tr = e.target.closest('tr');
@@ -875,16 +961,11 @@ function buildPairsTable() {
 function refreshUI() {
   $('#rng-speed').value = params.stepsPerFrame;
   $('#val-speed').textContent = params.stepsPerFrame;
-  $('#rng-brush').value = params.brushRadius;
-  $('#val-brush').textContent = params.brushRadius;
-  $('#rng-value').value = params.brushValue;
-  $('#val-value').textContent = fmt(params.brushValue, 2);
   $('#sel-brush-species').value = params.brushSpecies;
   $('#col-bg').value   = params.bgColor;
-  for (const s of SPECIES) {
-    const input = document.querySelector(`#species-colors [data-species="${s.key}"]`);
-    if (input) input.value = params.species[s.key].color;
-  }
+  $('#chk-show-rules').checked = params.showRuleFields;
+  $('#chk-show-pairs').checked = params.showPairFields;
+  syncColorUI();
   for (const pairMeta of PAIRS) {
     const p = params.pairs[pairMeta.key];
     const tr = document.querySelector(`#pairs-tbody tr[data-pair="${pairMeta.key}"]`);
@@ -918,16 +999,19 @@ function bindUI() {
   $('#btn-step').addEventListener('click', () => step());
 
   bindRange('#rng-speed', '#val-speed', v => { params.stepsPerFrame = v|0; }, 0);
-  bindRange('#rng-brush', '#val-brush', v => { params.brushRadius   = v|0; }, 0);
-  bindRange('#rng-value', '#val-value', v => { params.brushValue    = v;   }, 2);
 
   $('#btn-clear'  ).addEventListener('click', () => uploadSeed('clear'));
-  $('#btn-circles').addEventListener('click', () => uploadSeed('circles'));
   $('#btn-noise'  ).addEventListener('click', () => uploadSeed('noise'));
 
-  $('#btn-reset-view').addEventListener('click', resetView);
-
   $('#col-bg'  ).addEventListener('input', e => { params.bgColor   = e.target.value; applyParams(); });
+  $('#chk-show-rules').addEventListener('input', e => {
+    params.showRuleFields = e.target.checked;
+    applyParams();
+  });
+  $('#chk-show-pairs').addEventListener('input', e => {
+    params.showPairFields = e.target.checked;
+    applyParams();
+  });
 
   const panel = $('#rules-panel');
   const btn   = $('#btn-rules');
@@ -939,6 +1023,10 @@ function bindUI() {
   buildSpeciesControls();
   buildPairsTable();
   buildRulesTable();
+  $('#btn-pairs-on').addEventListener('click', () => setPairFields(false));
+  $('#btn-pairs-off').addEventListener('click', () => setPairFields(true));
+  $('#btn-rules-on').addEventListener('click', () => setRuleFields(false));
+  $('#btn-rules-off').addEventListener('click', () => setRuleFields(true));
   $('#btn-reset-rules').addEventListener('click', () => resetParams());
 }
 
@@ -1048,10 +1136,8 @@ renderer.domElement.addEventListener('wheel', e => {
 window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement) return;
   if (e.code === 'Space')  { setPaused(!params.paused); e.preventDefault(); }
-  if (e.code === 'KeyR')   { uploadSeed('circles'); }
   if (e.code === 'KeyN')   { uploadSeed('noise'); }
   if (e.code === 'KeyC')   { uploadSeed('clear'); }
-  if (e.code === 'KeyF')   { resetView(); }
   if (e.code === 'Period') { step(); }
 });
 
