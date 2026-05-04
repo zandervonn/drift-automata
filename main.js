@@ -661,13 +661,13 @@ function display() {
 const params = {
   stepsPerFrame: 1,
   entropy:       0.0,
-  reduceFlicker: false,
+  reduceFlicker: true,
   brushRadius:  14,
   brushValue:    1.0,
   brushSpecies:  'blue',
   bgColor:      '#ffffff',
-  showRuleFields: true,
-  showPairFields: true,
+  showRuleFields: false,
+  showPairFields: false,
   species:       {},
   pairs:         {},
   noise:         {},
@@ -747,11 +747,11 @@ function resetParams() {
     fieldDrift.pairs[p.key].y = 0;
   }
   params.bgColor   = bgColorDefault;
-  params.showRuleFields = true;
-  params.showPairFields = true;
+  params.showRuleFields = false;
+  params.showPairFields = false;
   params.stepsPerFrame = 1;
   params.entropy = 0;
-  params.reduceFlicker = false;
+  params.reduceFlicker = true;
   for (const r of RULES) {
     fieldDrift.rules[r.key].x = 0;
     fieldDrift.rules[r.key].y = 0;
@@ -1042,7 +1042,7 @@ function refreshUI() {
   $('#val-speed').textContent = fmt(params.stepsPerFrame, 2);
   $('#rng-entropy').value = params.entropy;
   $('#val-entropy').textContent = fmt(params.entropy, 2);
-  $('#chk-flicker').checked = params.reduceFlicker;
+  $('#chk-flicker').checked = !params.reduceFlicker;
   $('#chk-pairs-all').checked = allPairFieldsOn();
   $('#chk-rules-all').checked = allRuleFieldsOn();
   $('#sel-brush-species').value = params.brushSpecies;
@@ -1081,7 +1081,7 @@ function bindUI() {
   bindRange('#rng-speed', '#val-speed', v => { params.stepsPerFrame = v; }, 2);
   bindRange('#rng-entropy', '#val-entropy', v => { params.entropy = v; }, 2);
   $('#chk-flicker').addEventListener('input', e => {
-    params.reduceFlicker = e.target.checked;
+    params.reduceFlicker = !e.target.checked;
   });
 
   $('#btn-clear'  ).addEventListener('click', () => uploadSeed('clear'));
